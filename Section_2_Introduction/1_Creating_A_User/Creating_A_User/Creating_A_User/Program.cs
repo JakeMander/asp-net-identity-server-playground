@@ -1,44 +1,77 @@
-﻿using Microsoft.AspNet.Identity;
-using Microsoft.AspNet.Identity.EntityFramework;
+﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using System.Configuration;
+using Creating_A_User.Identity;
+using Microsoft.Extensions.Logging;
 
 namespace Creating_A_User
 {
-    internal class Program
+    public class Program
     {
-        static void Main(string[] args)
+       private interface IUserCreationService
         {
-            Console.WriteLine("Hello, World!");
+            Task<IdentityResult> CreateUserAsync(string username, string password, string email);
+        }
 
-            /*  
-             *  UserManger is the entry point for ASP.NET Identity. It contains
-             *  all of the CRUD methods for managing Identity data. It also
-             *  contains methods for managing passwords, claims and roles for 
-             *  users.
-             *  
-             *  All of these implementations are generic. It is possible to 
-             *  define many user types that can be used with the UserManager.
-             *  
-             *  Here we'll be using the default user entity (SQL table)
-             *  that comes the Identity  Entity Framework package. This is 
-             *  "IdentityUser" which comes pre-defined.
-             *  
-             *  A UserManager takes in a single parameter of a "UserStore"
-             *  which abstracts away the underlying storage mechanism
-             *  (i.e. the database). 
-             */
+        private class UserCreationService : IUserCreationService
+        {
+            private readonly UserManager<IdentityUser> _userManager;
+            public UserCreationService(UserManager<IdentityUser> userManager)
+            {
+                _userManager = userManager;
+            }
+            public async Task<IdentityResult> CreateUserAsync(string username, string password, string email)
+            {
+                var user = new IdentityUser(username);
+                user.Email = email;
+                user.EmailConfirmed = false;
 
-            var userStore = new UserStore<IdentityUser>();
-            var userManager = new UserManager<IdentityUser>(userStore);
+                var result = await _userManager.CreateAsync(user, password);
+                return result;
+            }
+        }
+        public static async Task Main(string[] args)
+        {
 
-            /*
-             * Create Takes an IU and a password. Username is mandatory, password
-             * is optional to allow or users who use external identity providers
-             * or a certificate.
-             * 
-             * Create returns a creation result which contains a success bool and
-             * a collection of errors (if something went wrong).
-             */
-            userManager.Create(new IdentityUser("jmmander1@hotmail.co.uk"), "jake123");
+            IServiceCollection services = new ServiceCollection();
+            var connectionString = System.Configuration.ConfigurationManager.ConnectionStrings["DefaultConnection"].ToString();
+
+            services.AddDbContext<ApplicationDbContext>(options =>
+                options.UseSqlServer(connectionString)
+            );
+
+            services.AddIdentity<IdentityUser, IdentityRole>(options =>
+            {
+                options.Password.RequireDigit = true;
+                options.Password.RequireLowercase = false;
+                options.Password.RequireUppercase = false;
+                options.Password.RequireNonAlphanumeric = false;
+                options.Password.RequiredLength = 7;
+                options.User.RequireUniqueEmail = true;
+            })
+                .AddEntityFrameworkStores<ApplicationDbContext>()
+                .AddDefaultTokenProviders();
+
+            services.AddLogging(configure => configure.AddConsole());
+
+            services.AddScoped<IUserCreationService, UserCreationService>();
+
+            //  Set up DI/IoC to set up our user class/inject all the behind the scenes
+            //  identity classes.
+            var provider = services.BuildServiceProvider();
+
+            //  Retrieve the class that's been injected with all the Identity goodness.
+            var userService = provider.GetService<IUserCreationService>();
+
+            var userResult = await userService.CreateUserAsync("jakemander96", "jake123", 
+                "jake@email.co.uk");
+
+            Console.WriteLine((userResult.Succeeded) ? "Creation Successful" : "Creation Failed");
+
+            return;
         }
     }
 }
