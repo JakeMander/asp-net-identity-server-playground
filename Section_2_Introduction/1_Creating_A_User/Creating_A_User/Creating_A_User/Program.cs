@@ -6,42 +6,19 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Configuration;
 using Creating_A_User.Identity;
 using Microsoft.Extensions.Logging;
-
+using System.Security.Claims;
 namespace Creating_A_User
 {
     public class Program
     {
-       private interface IUserCreationService
-        {
-            Task<IdentityResult> CreateUserAsync(string username, string password, string email);
-        }
-
-        private class UserCreationService : IUserCreationService
-        {
-            private readonly UserManager<IdentityUser> _userManager;
-            public UserCreationService(UserManager<IdentityUser> userManager)
-            {
-                _userManager = userManager;
-            }
-            public async Task<IdentityResult> CreateUserAsync(string username, string password, string email)
-            {
-                var user = new IdentityUser(username);
-                user.Email = email;
-                user.EmailConfirmed = false;
-
-                var result = await _userManager.CreateAsync(user, password);
-                return result;
-            }
-        }
         public static async Task Main(string[] args)
         {
 
             IServiceCollection services = new ServiceCollection();
             var connectionString = System.Configuration.ConfigurationManager.ConnectionStrings["DefaultConnection"].ToString();
 
-            services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseSqlServer(connectionString)
-            );
+            services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connectionString),
+                ServiceLifetime.Transient);
 
             services.AddIdentity<IdentityUser, IdentityRole>(options =>
             {
@@ -57,7 +34,7 @@ namespace Creating_A_User
 
             services.AddLogging(configure => configure.AddConsole());
 
-            services.AddScoped<IUserCreationService, UserCreationService>();
+            services.AddTransient<IUserCreationService, UserCreationService>();
 
             //  Set up DI/IoC to set up our user class/inject all the behind the scenes
             //  identity classes.
@@ -66,11 +43,22 @@ namespace Creating_A_User
             //  Retrieve the class that's been injected with all the Identity goodness.
             var userService = provider.GetService<IUserCreationService>();
 
+            if (userService == null)
+            {
+                throw new NullReferenceException("User Service Was Null. Terminating Program");
+            }
+
             var userResult = await userService.CreateUserAsync("jakemander96", "jake123", 
                 "jake@email.co.uk");
+            Console.WriteLine((userResult.Succeeded) ? "Creation Successful" : "Creation Failed: " +
+                $"{userResult.Errors.First().Description}");
 
-            Console.WriteLine((userResult.Succeeded) ? "Creation Successful" : "Creation Failed");
+            var claimResult = await userService.AssignUserClaim("jakemander96", new Claim("given_name", "Jake"));
+            Console.WriteLine((claimResult.Succeeded) ? "Claim Created" : "Claim Creation Failed: " +
+                $"{claimResult.Errors.First().Description}");
 
+            var passwordCheckResult = await userService.CheckUserPassword("jakemander96", "jake123");
+            Console.WriteLine((passwordCheckResult) ? "Password Matched" : "Passwords Did Not Match");
             return;
         }
     }
